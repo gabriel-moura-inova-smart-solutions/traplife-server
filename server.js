@@ -85,24 +85,26 @@ io.on('connection', (socket) => {
     }
   });
 
-  // 4. SINCRONIZAR MOVIMENTO
+  // 4. SINCRONIZAR MOVIMENTO E ESTADO COMPLETO
   socket.on('player_move', (data) => {
     const roomId = data.roomId;
     if (rooms[roomId] && rooms[roomId].players[socket.id]) {
-      // Atualiza os dados do jogador no servidor
-      rooms[roomId].players[socket.id].x = data.x;
-      rooms[roomId].players[socket.id].y = data.y;
-      rooms[roomId].players[socket.id].direction = data.direction;
-      rooms[roomId].players[socket.id].animation = data.animation;
-
-      // Transmite a atualização para os outros jogadores da sala
-      socket.to(roomId).emit('player_moved', {
-        id: socket.id,
+      // Atualiza os dados completos do jogador no servidor
+      rooms[roomId].players[socket.id] = {
+        ...rooms[roomId].players[socket.id],
         x: data.x,
         y: data.y,
         direction: data.direction,
-        animation: data.animation
-      });
+        animation: data.animation,
+        // Novos dados adicionados para visualização de terceiros:
+        name: data.name || rooms[roomId].players[socket.id].name,
+        appearance: data.appearance, // Ex: ID da skin ou cor
+        currentVehicle: data.currentVehicle, // Ex: ID do carro ou nulo
+        currentWeapon: data.currentWeapon // Ex: ID da arma equipada
+      };
+
+      // Transmite a atualização com o estado visual completo para os outros jogadores da sala
+      socket.to(roomId).emit('player_moved', rooms[roomId].players[socket.id]);
     }
   });
 
