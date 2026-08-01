@@ -9,22 +9,20 @@ app.use(cors());
 const server = http.createServer(app);
 const io = new Server(server, {
   cors: {
-    origin: "*", // Permite conexões do Netlify e do Lovable
+    origin: "*",
     methods: ["GET", "POST"],
     credentials: true
   }
 });
 
-// Armazenamento em memória das salas e jogadores
 const rooms = {};
 
 io.on('connection', (socket) => {
   console.log(`Usuário conectado: ${socket.id}`);
 
-  // 1. CRIAR SALA
   socket.on('create_room', (data) => {
-    // Gera código de 5 dígitos alfanuméricos
     const roomId = Math.random().toString(36).substring(2, 7).toUpperCase();
+    const playerName = data.name || `Jogador_${roomId}`;
     
     rooms[roomId] = {
       id: roomId,
@@ -33,10 +31,9 @@ io.on('connection', (socket) => {
       players: {}
     };
 
-    // Adiciona o criador da sala
     rooms[roomId].players[socket.id] = {
       id: socket.id,
-      name: data.name || `Jogador_${roomId}`,
+      name: playerName,
       x: 0,
       y: 0,
       direction: 'down',
@@ -45,24 +42,20 @@ io.on('connection', (socket) => {
 
     socket.join(roomId);
     socket.emit('room_created', { roomId, players: rooms[roomId].players });
-    console.log(`Sala criada: ${roomId} por ${socket.id}`);
+    console.log(`Sala criada: ${roomId} por ${playerName}`);
   });
 
-  // 2. ENTRAR NA SALA
   socket.on('join_room', (data) => {
     const roomId = data.roomId ? data.roomId.toUpperCase() : '';
     
-    if (!rooms[roomId]) {
-      return socket.emit('error_message', 'Sala não encontrada.');
-    }
-    if (rooms[roomId].gameStarted) {
-      return socket.emit('error_message', 'A partida já começou.');
-    }
+    if (!rooms[roomId]) return socket.emit('error_message', 'Sala não encontrada.');
+    if (rooms[roomId].gameStarted) return socket.emit('error_message', 'A partida já começou.');
 
-    // Adiciona o novo jogador
+    const playerName = data.name || `Jogador_${Math.floor(Math.random() * 1000)}`;
+
     rooms[roomId].players[socket.id] = {
       id: socket.id,
-      name: data.name || `Jogador_${Math.floor(Math.random() * 1000)}`,
+      name: playerName,
       x: 0,
       y: 0,
       direction: 'down',
@@ -70,64 +63,45 @@ io.on('connection', (socket) => {
     };
 
     socket.join(roomId);
-    
-    // Atualiza todo mundo na sala sobre o novo estado
     io.to(roomId).emit('room_state', { roomId, players: rooms[roomId].players });
-    console.log(`Jogador ${socket.id} entrou na sala ${roomId}`);
+    console.log(`Jogador ${playerName} entrou na sala ${roomId}`);
   });
 
-  // 3. INICIAR PARTIDA
-  socket.on('start_game', (data) => {
-    const roomId = data.roomId;
-    if (rooms[roomId] && rooms[roomId].host === socket.id) {
-      rooms[roomId].gameStarted = true;
-      io.to(roomId).emit('game_started');
-    }
-  });
-
-  // 4. SINCRONIZAR MOVIMENTO E ESTADO COMPLETO
   socket.on('player_move', (data) => {
     const roomId = data.roomId;
     if (rooms[roomId] && rooms[roomId].players[socket.id]) {
-      // Atualiza os dados completos do jogador no servidor
-      rooms[roomId].players[socket.id] = {
-        ...rooms[roomId].players[socket.id],
+      const updatedData = {
+        id: socket.id,
+        name: rooms[roomId].players[socket.id].name, // Mantém o nome original do server
         x: data.x,
         y: data.y,
         direction: data.direction,
         animation: data.animation,
-        // Novos dados adicionados para visualização de terceiros:
-        name: data.name || rooms[roomId].players[socket.id].name,
-        appearance: data.appearance, // Ex: ID da skin ou cor
-        currentVehicle: data.currentVehicle, // Ex: ID do carro ou nulo
-        currentWeapon: data.currentWeapon // Ex: ID da arma equipada
+        appearance: data.appearance,
+        currentVehicle: data.currentVehicle,
+        currentWeapon: data.currentWeapon
       };
 
-      // Transmite a atualização com o estado visual completo para os outros jogadores da sala
-      socket.to(roomId).emit('player_moved', rooms[roomId].players[socket.id]);
+      rooms[roomId].players[socket.id] = updatedData;
+      socket.to(roomId).emit('player_moved', updatedData);
     }
   });
 
-  // 5. DESCONEXÃO
   socket.on('disconnect', () => {
-    console.log(`Usuário desconectado: ${socket.id}`);
-    
-    // Procura em qual sala o jogador estava para removê-lo
     Object.keys(rooms).forEach((roomId) => {
       if (rooms[roomId] && rooms[roomId].players && rooms[roomId].players[socket.id]) {
+        const leftPlayerName = rooms[roomId].players[socket.id].name;
         delete rooms[roomId].players[socket.id];
         
-        // Se a sala ficou vazia, ela NÃO é deletada (mantém histórico em memória)
         if (Object.keys(rooms[roomId].players).length === 0) {
-          console.log(`Sala ${roomId} ficou vazia, mas mantida no histórico.`);
+          console.log(`Sala ${roomId} vazia.`);
         } else {
-          // Se o host saiu, passa o host para o próximo jogador da lista
           if (rooms[roomId].host === socket.id) {
             rooms[roomId].host = Object.keys(rooms[roomId].players)[0];
           }
-          // Notifica os sobreviventes da sala
           io.to(roomId).emit('room_state', { roomId, players: rooms[roomId].players });
         }
+        console.log(`Jogador ${leftPlayerName} desconectou.`);
       }
     });
   });
@@ -135,5 +109,5 @@ io.on('connection', (socket) => {
 
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
-  console.log(`Servidor de TrapLife rodando na porta ${PORT}`);
+  console.log(`Servidor rodando na porta ${PORT}`);
 });
