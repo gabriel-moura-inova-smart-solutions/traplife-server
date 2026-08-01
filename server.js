@@ -1,36 +1,18 @@
-const express = require('express');
-const http = require('http');
-const { Server } = require('socket.io');
-const cors = require('cors');
-
-const app = express();
-app.use(cors());
-
-const server = http.createServer(app);
-const io = new Server(server, {
-  cors: {
-    origin: "*",
-    methods: ["GET", "POST"],
-    credentials: true
-  }
-});
-
-const rooms = {};
-
-io.on('connection', (socket) => {
-  console.log(`Usuário conectado: ${socket.id}`);
-
   // 1. CRIAR SALA (MUNDO ABERTO)
   socket.on('create_room', (data) => {
-    const roomId = Math.random().toString(36).substring(2, 7).toUpperCase();
+    // Se o cliente enviar um ID pronto, usamos ele. Se não, geramos um.
+    const roomId = (data.roomId || Math.random().toString(36).substring(2, 7)).trim().toUpperCase();
     const playerName = data.name || `Jogador_${roomId}`;
     
-    rooms[roomId] = {
-      id: roomId,
-      host: socket.id,
-      gameStarted: true, // Já nasce ativa como mundo aberto
-      players: {}
-    };
+    // Se a sala não existir, cria
+    if (!rooms[roomId]) {
+      rooms[roomId] = {
+        id: roomId,
+        host: socket.id,
+        gameStarted: true,
+        players: {}
+      };
+    }
 
     rooms[roomId].players[socket.id] = {
       id: socket.id,
@@ -43,9 +25,46 @@ io.on('connection', (socket) => {
 
     socket.join(roomId);
     socket.emit('room_created', { roomId, players: rooms[roomId].players });
-    socket.emit('game_started'); // Manda o criador direto para o mapa
-    console.log(`Sala criada e aberta: ${roomId} por ${playerName}`);
+    socket.emit('game_started'); 
+    console.log(`[SERVIDO] Sala criada/registrada: ${roomId} pelo jogador: ${playerName}`);
   });
+
+  // 2. ENTRAR NA SALA (MUNDO ABERTO)
+  socket.on('join_room', (data) => {
+    if (!data.roomId) return socket.emit('error_message', 'Código de sala inválido.');
+    
+    const roomId = data.roomId.trim().toUpperCase();
+    
+    // SE A SALA NÃO EXISTIR NA MEMÓRIA DO SERVIDOR, VAMOS CRIAR ELA AGORA EM VEZ DE DAR ERRO!
+    if (!rooms[roomId]) {
+      rooms[roomId] = {
+        id: roomId,
+        host: socket.id,
+        gameStarted: true,
+        players: {}
+      };
+      console.log(`[SERVIDOR] Sala ${roomId} não existia na memória e foi recriada no Join.`);
+    }
+
+    const playerName = data.name || `Jogador_${Math.floor(Math.random() * 1000)}`;
+
+    rooms[roomId].players[socket.id] = {
+      id: socket.id,
+      name: playerName,
+      x: 300,
+      y: 300,
+      direction: 'down',
+      animation: 'idle'
+    };
+
+    socket.join(roomId);
+    socket.emit('game_started'); 
+    
+    // Dispara o estado atualizado para TODO MUNDO que está conectado nessa mesma sala
+    io.to(roomId).emit('room_state', { roomId, players: rooms[roomId].players });
+    console.log(`[SERVIDOR] Jogador ${playerName} conectado com sucesso na sala compartilhada ${roomId}`);
+  });
+
 
   // 2. ENTRAR NA SALA (MUNDO ABERTO)
   socket.on('join_room', (data) => {
