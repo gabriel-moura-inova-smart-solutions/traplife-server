@@ -10,12 +10,12 @@ const server = http.createServer(app);
 const io = new Server(server, {
   cors: {
     origin: "*", // Permite conexões do Netlify e do Lovable
-    methods: ["GET", "POST"]
+    methods: ["GET", "POST"],
+    credentials: true
   }
 });
 
 // Armazenamento em memória das salas e jogadores
-// Estrutura: { [roomId]: { id: string, name: string, host: string, players: { [socketId]: playerData } } }
 const rooms = {};
 
 io.on('connection', (socket) => {
@@ -112,13 +112,12 @@ io.on('connection', (socket) => {
     
     // Procura em qual sala o jogador estava para removê-lo
     Object.keys(rooms).forEach((roomId) => {
-      if (rooms[roomId].players[socket.id]) {
+      if (rooms[roomId] && rooms[roomId].players && rooms[roomId].players[socket.id]) {
         delete rooms[roomId].players[socket.id];
         
-        // Se a sala ficou vazia, deleta a sala
+        // Se a sala ficou vazia, ela NÃO é deletada (mantém histórico em memória)
         if (Object.keys(rooms[roomId].players).length === 0) {
-          delete rooms[roomId];
-          console.log(`Sala ${roomId} vazia deletada.`);
+          console.log(`Sala ${roomId} ficou vazia, mas mantida no histórico.`);
         } else {
           // Se o host saiu, passa o host para o próximo jogador da lista
           if (rooms[roomId].host === socket.id) {
